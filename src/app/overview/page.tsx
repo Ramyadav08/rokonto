@@ -1,5 +1,6 @@
 import dynamic from "next/dynamic";
 import { KpiStrip } from "@/components/overview/KpiStrip";
+import { InfraCost } from "@/components/overview/InfraCost";
 import { ResourceFlow } from "@/components/overview/ResourceFlow";
 import { NamespaceBreakdown } from "@/components/overview/NamespaceBreakdown";
 import { TopMovers } from "@/components/overview/TopMovers";
@@ -18,6 +19,7 @@ export default function OverviewPage() {
   return (
     <div className="space-y-4 p-6">
       <KpiStrip />
+      <InfraCost />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="space-y-4">
