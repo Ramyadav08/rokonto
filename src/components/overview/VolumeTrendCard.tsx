@@ -5,6 +5,8 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { getVolumeSeries, VOLUME_RANGES, type VolumeRange } from "@/mock/overview";
 import { formatByUnit, formatClock } from "@/lib/format";
 import { ExpandableCard } from "@/components/ui/ExpandableCard";
+import { LogCorrelationTooltip } from "@/components/charts/LogCorrelationTooltip";
+import { readChartClick, useLogDrilldown } from "@/lib/logCorrelation";
 import { cn } from "@/lib/cn";
 
 interface VolumeTrendCardProps {
@@ -18,6 +20,7 @@ export function VolumeTrendCard({ title, kind, color }: VolumeTrendCardProps) {
   const data = getVolumeSeries(kind, range);
   const unit = kind === "requests" ? "none" : "percent";
   const seriesName = kind === "requests" ? "Requests/min" : "Error Rate";
+  const goToLogs = useLogDrilldown();
 
   const controls = (
     <div className="flex overflow-hidden rounded-md border border-border text-xs">
@@ -39,7 +42,15 @@ export function VolumeTrendCard({ title, kind, color }: VolumeTrendCardProps) {
   return (
     <ExpandableCard title={title} controls={controls} bodyClassName="h-56">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <AreaChart
+          data={data}
+          margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+          onClick={(e) => {
+            const click = readChartClick(e);
+            if (click) goToLogs(click.timestamp);
+          }}
+          className="cursor-pointer"
+        >
           <defs>
             <linearGradient id={`grad-volume-${kind}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity={0.3} />
@@ -67,9 +78,14 @@ export function VolumeTrendCard({ title, kind, color }: VolumeTrendCardProps) {
             tickFormatter={(v) => formatByUnit(v, unit, 0)}
           />
           <Tooltip
-            contentStyle={{ background: "#141922", border: "1px solid #232a35", borderRadius: 6, fontSize: 12 }}
-            labelFormatter={(v) => formatClock(Number(v))}
-            formatter={(value) => [formatByUnit(Number(value), unit, 2), seriesName]}
+            content={({ active, label, payload }) =>
+              active && label !== undefined && payload?.[0] ? (
+                <LogCorrelationTooltip
+                  timestamp={Number(label)}
+                  valueLine={`${seriesName}: ${formatByUnit(Number(payload[0].value), unit, 2)}`}
+                />
+              ) : null
+            }
           />
           <Area
             type="monotone"

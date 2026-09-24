@@ -17,6 +17,7 @@ import {
 import {
   getLogs,
   filterLogs,
+  generateLogsAround,
   LOG_SERVICES,
   LOG_NAMESPACES,
   type LogFilters,
@@ -58,6 +59,7 @@ export const mockData = {
   // explore / logs
   getLogs,
   filterLogs,
+  generateLogsAround,
   logServices: LOG_SERVICES,
   logNamespaces: LOG_NAMESPACES,
 

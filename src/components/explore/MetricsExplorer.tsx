@@ -6,6 +6,8 @@ import { mockData } from "@/lib/mockData";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { formatByUnit, formatClock } from "@/lib/format";
+import { LogCorrelationTooltip } from "@/components/charts/LogCorrelationTooltip";
+import { readChartClick, useLogDrilldown } from "@/lib/logCorrelation";
 import { cn } from "@/lib/cn";
 import {
   Area,
@@ -37,6 +39,7 @@ export function MetricsExplorer() {
   );
   const unit = mockData.unitForMetric(metric);
   const seriesNames = Object.keys(data[0] ?? {}).filter((k) => k !== "time");
+  const goToLogs = useLogDrilldown();
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4">
@@ -95,7 +98,15 @@ export function MetricsExplorer() {
 
       <Card className="min-h-[360px] flex-1 p-4">
         <ResponsiveContainer width="100%" height={360}>
-          <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+          <AreaChart
+            data={data}
+            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+            className="cursor-pointer"
+            onClick={(state) => {
+              const click = readChartClick(state);
+              if (click) goToLogs(click.timestamp, service !== "all" ? service : click.seriesName);
+            }}
+          >
             <CartesianGrid stroke="#1a2029" vertical={false} />
             <XAxis
               dataKey="time"
@@ -117,9 +128,15 @@ export function MetricsExplorer() {
               tickFormatter={(v) => formatByUnit(v, unit, 0)}
             />
             <Tooltip
-              contentStyle={{ background: "#141922", border: "1px solid #232a35", borderRadius: 6, fontSize: 12 }}
-              labelFormatter={(v) => formatClock(Number(v))}
-              formatter={(value, name) => [formatByUnit(Number(value), unit, 2), String(name)]}
+              content={({ active, label, payload }) =>
+                active && label !== undefined && payload?.[0] ? (
+                  <LogCorrelationTooltip
+                    timestamp={Number(label)}
+                    hint={service !== "all" ? service : payload[0].name ? String(payload[0].name) : undefined}
+                    valueLine={`${payload[0].name}: ${formatByUnit(Number(payload[0].value), unit, 2)}`}
+                  />
+                ) : null
+              }
             />
             {seriesNames.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: "#9aa4b2" }} />}
             {seriesNames.map((name, i) => (

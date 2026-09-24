@@ -26,6 +26,11 @@ function mulberry32(seed: number) {
   };
 }
 
+/** A single deterministic pseudo-random value in [0, 1) for an arbitrary seed key. */
+export function seededRandom(seedKey: string): number {
+  return mulberry32(hashSeed(seedKey))();
+}
+
 function defaultRangeForUnit(unit?: string): [number, number] {
   switch (unit) {
     case "percentunit":

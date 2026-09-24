@@ -1,3 +1,5 @@
+import { seededRandom } from "./generator";
+
 export type LogLevel = "ERROR" | "WARN" | "INFO" | "DEBUG";
 
 export interface LogEntry {
@@ -50,6 +52,15 @@ function hex(len: number): string {
   return out;
 }
 
+function seededHex(seedKey: string, len: number): string {
+  const chars = "abcdef0123456789";
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[Math.floor(seededRandom(`${seedKey}-${i}`) * chars.length)];
+  return out;
+}
+
+const SEVERE_TEMPLATES = TEMPLATES.filter((t) => t.level === "ERROR" || t.level === "WARN");
+
 let cachedLogs: LogEntry[] | null = null;
 
 export function generateLogs(count = 400): LogEntry[] {
@@ -85,6 +96,46 @@ export function getLogs(): LogEntry[] {
   return cachedLogs;
 }
 
+/**
+ * Synthesizes a burst of log entries clustered around a specific instant --
+ * used to answer "what happened here" when a user clicks a point on a
+ * metric chart. Deterministic per (timestamp, hint) so the same point
+ * always correlates to the same logs, independent of when the metric chart
+ * itself happened to be rendered (its own mock series is regenerated on
+ * every render relative to "now", so we can't just filter the global log
+ * pool by proximity -- it may not cover that instant at all).
+ */
+export function generateLogsAround(timestamp: number, hint?: string, count = 14): LogEntry[] {
+  const knownService = SERVICES.find((s) => hint?.toLowerCase().includes(s.toLowerCase()));
+  const seedBase = `around-${Math.round(timestamp / 1000)}-${hint ?? ""}`;
+
+  const logs: LogEntry[] = [];
+  for (let i = 0; i < count; i++) {
+    const seedKey = `${seedBase}-${i}`;
+    const offsetMs = Math.round((seededRandom(`${seedKey}-offset`) - 0.5) * 10 * 60_000);
+    const useSevere = seededRandom(`${seedKey}-severity`) < 0.65;
+    const pool = useSevere ? SEVERE_TEMPLATES : TEMPLATES;
+    const template = pool[Math.floor(seededRandom(`${seedKey}-template`) * pool.length)];
+    const service = knownService ?? SERVICES[Math.floor(seededRandom(`${seedKey}-svc`) * SERVICES.length)];
+    const namespace = NAMESPACES[Math.floor(seededRandom(`${seedKey}-ns`) * NAMESPACES.length)];
+
+    logs.push({
+      id: `around-${seedKey}`,
+      timestamp: timestamp + offsetMs,
+      level: template.level,
+      service,
+      namespace,
+      pod: `${service}-${seededHex(seedKey, 5)}`,
+      container: service,
+      message: template.message,
+      traceId: seededHex(`${seedKey}-trace`, 32),
+      spanId: seededHex(`${seedKey}-span`, 16),
+      labels: { app: service, env: namespace, version: "v1.4.0" },
+    });
+  }
+  return logs.sort((a, b) => b.timestamp - a.timestamp);
+}
+
 export interface LogFilters {
   service?: string;
   namespace?: string;
@@ -97,7 +148,11 @@ export function filterLogs(logs: LogEntry[], filters: LogFilters): LogEntry[] {
     if (filters.service && filters.service !== "all" && log.service !== filters.service) return false;
     if (filters.namespace && filters.namespace !== "all" && log.namespace !== filters.namespace) return false;
     if (filters.level && filters.level !== "all" && log.level !== filters.level) return false;
-    if (filters.search && !log.message.toLowerCase().includes(filters.search.toLowerCase())) return false;
+    if (filters.search) {
+      const needle = filters.search.toLowerCase();
+      const haystack = `${log.message} ${log.service}`.toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
     return true;
   });
 }

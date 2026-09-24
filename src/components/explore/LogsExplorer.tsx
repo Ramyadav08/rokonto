@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { X } from "lucide-react";
+import Link from "next/link";
+import { Sparkles, X } from "lucide-react";
 import { mockData } from "@/lib/mockData";
 import { LogEntry } from "@/mock/logs";
 import { Select } from "@/components/ui/Select";
@@ -19,6 +20,9 @@ const LEVEL_COLOR: Record<string, string> = {
 
 export function LogsExplorer() {
   const searchParams = useSearchParams();
+  const around = searchParams.get("around");
+  const hint = searchParams.get("q") ?? undefined;
+
   const [timeRange, setTimeRange] = useState("now-15m");
   const [service, setService] = useState(searchParams.get("service") ?? "all");
   const [namespace, setNamespace] = useState("all");
@@ -26,15 +30,40 @@ export function LogsExplorer() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<LogEntry | null>(null);
 
-  const allLogs = useMemo(() => mockData.getLogs(), []);
-  const logs = useMemo(
-    () => mockData.filterLogs(allLogs, { service, namespace, level, search }),
-    [allLogs, service, namespace, level, search]
+  // Arriving from a "view logs at this point" click on a chart: base the
+  // list on a burst of logs synthesized around that instant instead of the
+  // general pool, which may not even cover that time window.
+  const baseLogs = useMemo(
+    () => (around ? mockData.generateLogsAround(Number(around), hint, 40) : mockData.getLogs()),
+    [around, hint]
   );
+  const logs = useMemo(
+    () => mockData.filterLogs(baseLogs, { service, namespace, level, search }),
+    [baseLogs, service, namespace, level, search]
+  );
+
+  useEffect(() => {
+    if (around) setSelected(baseLogs[0] ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [around]);
 
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
+        {around && (
+          <div className="flex items-center gap-2 border-b border-border bg-accent-blue/10 px-4 py-2 text-xs text-accent-blue">
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Showing logs around {formatClock(Number(around))}
+              {hint ? ` correlated with "${hint}"` : ""}
+            </span>
+            <Link href="/explore/logs" className="ml-auto flex items-center gap-1 text-text-secondary hover:text-text-primary">
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </Link>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
           <Select options={TIME_RANGE_PRESETS} value={timeRange} onChange={(e) => setTimeRange(e.target.value)} />
           <Select
