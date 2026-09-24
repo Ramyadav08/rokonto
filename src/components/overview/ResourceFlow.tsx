@@ -59,7 +59,18 @@ export function ResourceFlow() {
           margin={{ top: 8, right: 90, bottom: 8, left: 90 }}
         >
           <Tooltip
-            contentStyle={{ background: "#141922", border: "1px solid #232a35", borderRadius: 6, fontSize: 12 }}
+            content={({ active, payload }) =>
+              active && payload?.[0] ? (
+                <div className="rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-xs shadow-lg">
+                  <span className="text-text-secondary">{payload[0].name}</span>
+                  <span className="ml-1.5 font-medium text-text-primary">
+                    {metric === "cpu"
+                      ? `${payload[0].value} cores`
+                      : `${(Number(payload[0].value) / 4).toFixed(1)} GB`}
+                  </span>
+                </div>
+              ) : null
+            }
           />
         </Sankey>
       </ResponsiveContainer>
