@@ -140,19 +140,14 @@ export interface LogFilters {
   service?: string;
   namespace?: string;
   level?: string;
-  search?: string;
 }
 
+/** Dropdown filters only -- free-text/field search lives in src/lib/logQuery.ts. */
 export function filterLogs(logs: LogEntry[], filters: LogFilters): LogEntry[] {
   return logs.filter((log) => {
     if (filters.service && filters.service !== "all" && log.service !== filters.service) return false;
     if (filters.namespace && filters.namespace !== "all" && log.namespace !== filters.namespace) return false;
     if (filters.level && filters.level !== "all" && log.level !== filters.level) return false;
-    if (filters.search) {
-      const needle = filters.search.toLowerCase();
-      const haystack = `${log.message} ${log.service}`.toLowerCase();
-      if (!haystack.includes(needle)) return false;
-    }
     return true;
   });
 }

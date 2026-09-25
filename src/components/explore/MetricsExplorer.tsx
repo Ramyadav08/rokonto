@@ -8,7 +8,9 @@ import { Card } from "@/components/ui/Card";
 import { formatByUnit, formatClock } from "@/lib/format";
 import { LogCorrelationTooltip } from "@/components/charts/LogCorrelationTooltip";
 import { readChartClick, useLogDrilldown } from "@/lib/logCorrelation";
+import { parsePromQL } from "@/lib/promqlQuery";
 import { cn } from "@/lib/cn";
+import type { MetricQuery } from "@/mock/metrics";
 import {
   Area,
   AreaChart,
@@ -23,6 +25,10 @@ import { TIME_RANGE_PRESETS } from "@/dashboard/types";
 
 const SERIES_COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#eab308"];
 
+function toPromQLString(q: MetricQuery): string {
+  return `${q.aggregation.toLowerCase()}(${q.metric}{service="${q.service}",namespace="${q.namespace}",pod="${q.pod}"}) by (${q.groupBy.toLowerCase()})`;
+}
+
 export function MetricsExplorer() {
   const [mode, setMode] = useState<"builder" | "advanced">("builder");
   const [metric, setMetric] = useState(mockData.metricNames[0]);
@@ -32,12 +38,18 @@ export function MetricsExplorer() {
   const [aggregation, setAggregation] = useState(mockData.aggregations[0]);
   const [groupBy, setGroupBy] = useState(mockData.groupByOptions[0]);
   const [timeRange, setTimeRange] = useState("now-1h");
-
-  const data = useMemo(
-    () => mockData.getMetricSeries({ metric, service, namespace, pod, aggregation, groupBy }),
-    [metric, service, namespace, pod, aggregation, groupBy]
+  const [advancedQuery, setAdvancedQuery] = useState(() =>
+    toPromQLString({ metric, service, namespace, pod, aggregation, groupBy })
   );
-  const unit = mockData.unitForMetric(metric);
+
+  const parsedAdvanced = useMemo(() => parsePromQL(advancedQuery), [advancedQuery]);
+  const effectiveQuery: MetricQuery = useMemo(
+    () => (mode === "advanced" ? parsedAdvanced.query : { metric, service, namespace, pod, aggregation, groupBy }),
+    [mode, parsedAdvanced, metric, service, namespace, pod, aggregation, groupBy]
+  );
+
+  const data = useMemo(() => mockData.getMetricSeries(effectiveQuery), [effectiveQuery]);
+  const unit = mockData.unitForMetric(effectiveQuery.metric);
   const seriesNames = Object.keys(data[0] ?? {}).filter((k) => k !== "time");
   const goToLogs = useLogDrilldown();
 
@@ -88,10 +100,31 @@ export function MetricsExplorer() {
         </Card>
       ) : (
         <Card className="mb-4 p-3">
-          <div className="mb-1.5 text-xs text-text-muted">PromQL-style query (preview only)</div>
-          <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 font-mono text-xs text-text-secondary">
-            {aggregation.toLowerCase()}({metric}
-            {`{service="${service}",namespace="${namespace}",pod="${pod}"}`}) by ({groupBy.toLowerCase()})
+          <div className="mb-1.5 text-xs text-text-muted">
+            PromQL-style query -- runs against mock data, not a real Prometheus
+          </div>
+          <input
+            className="w-full rounded-md border border-border bg-surface-raised px-2.5 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent-blue"
+            value={advancedQuery}
+            onChange={(e) => setAdvancedQuery(e.target.value)}
+            spellCheck={false}
+            placeholder='sum(container_cpu_usage{service="api-gateway"}) by (pod)'
+          />
+          <div className="mt-1.5 text-xs text-text-muted">
+            {parsedAdvanced.recognized ? (
+              <>
+                Parsed as: metric <span className="text-text-secondary">{effectiveQuery.metric}</span>, aggregation{" "}
+                <span className="text-text-secondary">{effectiveQuery.aggregation}</span>, group by{" "}
+                <span className="text-text-secondary">{effectiveQuery.groupBy}</span>
+                {effectiveQuery.service !== "all" && (
+                  <>
+                    , service <span className="text-text-secondary">{effectiveQuery.service}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              "Couldn't fully parse this as a query -- treating it as a bare metric name."
+            )}
           </div>
         </Card>
       )}
@@ -104,7 +137,7 @@ export function MetricsExplorer() {
             className="cursor-pointer"
             onClick={(state) => {
               const click = readChartClick(state);
-              if (click) goToLogs(click.timestamp, service !== "all" ? service : click.seriesName);
+              if (click) goToLogs(click.timestamp, effectiveQuery.service !== "all" ? effectiveQuery.service : click.seriesName);
             }}
           >
             <CartesianGrid stroke="#1a2029" vertical={false} />
@@ -132,7 +165,13 @@ export function MetricsExplorer() {
                 active && label !== undefined && payload?.[0] ? (
                   <LogCorrelationTooltip
                     timestamp={Number(label)}
-                    hint={service !== "all" ? service : payload[0].name ? String(payload[0].name) : undefined}
+                    hint={
+                      effectiveQuery.service !== "all"
+                        ? effectiveQuery.service
+                        : payload[0].name
+                          ? String(payload[0].name)
+                          : undefined
+                    }
                     valueLine={`${payload[0].name}: ${formatByUnit(Number(payload[0].value), unit, 2)}`}
                   />
                 ) : null

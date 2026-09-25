@@ -1,16 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { ArrowLeft, GripVertical, X } from "lucide-react";
 import { mockData } from "@/lib/mockData";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatClock, formatDurationMs } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { useResizableWidth } from "@/lib/useResizableWidth";
 import { TraceViewer } from "./TraceViewer";
 import { TIME_RANGE_PRESETS } from "@/dashboard/types";
 
 export function TracesExplorer() {
+  const { width: panelWidth, onMouseDown: onResizeStart } = useResizableWidth(460, {
+    min: 340,
+    max: 900,
+    storageKey: "observex.tracePanelWidth",
+  });
   const [timeRange, setTimeRange] = useState("now-15m");
   const [service, setService] = useState("all");
   const [operation, setOperation] = useState("all");
@@ -35,7 +41,7 @@ export function TracesExplorer() {
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={cn("flex min-w-0 flex-1 flex-col", selected && "hidden lg:flex")}>
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
           <Select options={TIME_RANGE_PRESETS} value={timeRange} onChange={(e) => setTimeRange(e.target.value)} />
           <Select
@@ -62,8 +68,8 @@ export function TracesExplorer() {
           <span className="ml-auto text-xs text-text-muted">{filtered.length} traces</span>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <table className="w-full border-collapse text-xs">
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="w-full min-w-[640px] border-collapse text-xs">
             <thead className="sticky top-0 bg-surface">
               <tr className="border-b border-border text-left text-text-muted">
                 <th className="px-4 py-2 font-medium">Trace ID</th>
@@ -107,10 +113,37 @@ export function TracesExplorer() {
       </div>
 
       {selected && (
-        <div className="w-[420px] shrink-0 overflow-y-auto border-l border-border bg-surface p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-text-primary">{selected.operation}</h3>
-            <button onClick={() => setSelectedId(null)} className="text-text-muted hover:text-text-primary">
+        <div
+          onMouseDown={onResizeStart}
+          className="group relative hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center lg:flex"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize trace panel"
+        >
+          <div className="h-full w-px bg-border group-hover:bg-accent-blue" />
+          <GripVertical className="absolute h-4 w-3 text-text-muted opacity-0 group-hover:opacity-100" />
+        </div>
+      )}
+
+      {selected && (
+        <div
+          className="w-full shrink-0 overflow-y-auto bg-surface p-4 lg:w-[var(--panel-w)]"
+          style={{ ["--panel-w" as string]: `${panelWidth}px` }}
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <button
+              onClick={() => setSelectedId(null)}
+              className="flex shrink-0 items-center gap-1 text-text-muted hover:text-text-primary lg:hidden"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back
+            </button>
+            <h3 className="truncate text-sm font-medium text-text-primary">{selected.operation}</h3>
+            <button
+              onClick={() => setSelectedId(null)}
+              className="hidden shrink-0 text-text-muted hover:text-text-primary lg:block"
+              aria-label="Close trace"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>

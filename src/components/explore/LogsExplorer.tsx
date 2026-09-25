@@ -3,13 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Sparkles, X } from "lucide-react";
+import { HelpCircle, Sparkles, X } from "lucide-react";
 import { mockData } from "@/lib/mockData";
 import { LogEntry } from "@/mock/logs";
+import { filterLogsByQuery } from "@/lib/logQuery";
 import { Select } from "@/components/ui/Select";
 import { formatClock } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { TIME_RANGE_PRESETS } from "@/dashboard/types";
+
+const QUERY_HELP = [
+  'service="api-gateway"   exact match on a field',
+  "level!=INFO             negated match",
+  "timeout                 word anywhere in the message",
+  '"connection refused"    exact phrase',
+  "",
+  "Fields: service, namespace, level, pod, container",
+  "Combine terms with a space -- they all must match (AND).",
+].join("\n");
 
 const LEVEL_COLOR: Record<string, string> = {
   ERROR: "text-status-critical",
@@ -27,7 +38,7 @@ export function LogsExplorer() {
   const [service, setService] = useState(searchParams.get("service") ?? "all");
   const [namespace, setNamespace] = useState("all");
   const [level, setLevel] = useState("all");
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<LogEntry | null>(null);
 
   // Arriving from a "view logs at this point" click on a chart: base the
@@ -37,10 +48,10 @@ export function LogsExplorer() {
     () => (around ? mockData.generateLogsAround(Number(around), hint, 40) : mockData.getLogs()),
     [around, hint]
   );
-  const logs = useMemo(
-    () => mockData.filterLogs(baseLogs, { service, namespace, level, search }),
-    [baseLogs, service, namespace, level, search]
-  );
+  const logs = useMemo(() => {
+    const byDropdowns = mockData.filterLogs(baseLogs, { service, namespace, level });
+    return filterLogsByQuery(byDropdowns, query);
+  }, [baseLogs, service, namespace, level, query]);
 
   useEffect(() => {
     if (around) setSelected(baseLogs[0] ?? null);
@@ -84,12 +95,21 @@ export function LogsExplorer() {
             value={level}
             onChange={(e) => setLevel(e.target.value)}
           />
-          <input
-            className="min-w-[200px] flex-1 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent-blue"
-            placeholder="Search logs"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="relative min-w-[240px] flex-1">
+            <input
+              className="w-full rounded-md border border-border bg-surface-raised py-1.5 pl-2.5 pr-7 font-mono text-xs text-text-primary outline-none focus:border-accent-blue"
+              placeholder='service="api-gateway" level=ERROR timeout'
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              spellCheck={false}
+            />
+            <span
+              className="absolute right-2 top-1/2 -translate-y-1/2 cursor-help text-text-muted"
+              title={QUERY_HELP}
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </span>
+          </div>
           <span className="ml-auto text-xs text-text-muted">{logs.length} results</span>
         </div>
 
