@@ -3,7 +3,6 @@
 // (or an `api` module with the same shape) is the only thing that needs to
 // change.
 
-import { getRecentProblems } from "@/mock/services";
 import {
   getKpiStrip,
   getResourceFlow,
@@ -34,7 +33,7 @@ import {
   type MetricQuery,
 } from "@/mock/metrics";
 import { getTraces, getTraceById, TRACE_SERVICES, TRACE_OPERATIONS } from "@/mock/traces";
-import { getAlerts, getAlertById, formatDuration } from "@/mock/alerts";
+import { getAlerts, getAlertById, formatDuration, getRecentProblems } from "@/mock/alerts";
 import {
   listDashboards,
   getDashboard,

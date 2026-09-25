@@ -94,6 +94,32 @@ export function getAlertById(id: string): AlertItem | undefined {
   return ALERTS.find((a) => a.id === id);
 }
 
+export interface RecentProblem {
+  id: string;
+  title: string;
+  target: string;
+  severity: "critical" | "warning";
+  cause: string;
+}
+
+/**
+ * Overview's "Recent Problems" is just a glance at the most pressing firing
+ * alerts -- derived here (instead of a separate hand-maintained mock list)
+ * so the two views can never drift out of sync with each other, and so the
+ * "cause" line is real alert copy rather than invented separately.
+ */
+export function getRecentProblems(limit = 3): RecentProblem[] {
+  return ALERTS.filter((a) => a.status === "Firing")
+    .slice(0, limit)
+    .map((a) => ({
+      id: a.id,
+      title: a.name,
+      target: a.service,
+      severity: a.severity === "Critical" ? "critical" : "warning",
+      cause: a.description,
+    }));
+}
+
 export function formatDuration(startMs: number, endMs = Date.now()): string {
   const totalMinutes = Math.max(0, Math.floor((endMs - startMs) / 60_000));
   if (totalMinutes < 60) return `${totalMinutes} minute${totalMinutes === 1 ? "" : "s"}`;

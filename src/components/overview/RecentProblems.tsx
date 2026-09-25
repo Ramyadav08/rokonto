@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, OctagonAlert } from "lucide-react";
-import { getRecentProblems } from "@/mock/services";
+import { getRecentProblems } from "@/mock/alerts";
 import { ExpandableCard } from "@/components/ui/ExpandableCard";
 
 export function RecentProblems() {
@@ -14,16 +14,20 @@ export function RecentProblems() {
           <Link
             key={p.id}
             href={`/explore/logs?service=${encodeURIComponent(p.target)}`}
-            className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-hover"
+            className="flex items-start gap-3 px-4 py-2.5 hover:bg-surface-hover"
           >
             <Icon
-              className={`h-4 w-4 shrink-0 ${
+              className={`mt-0.5 h-4 w-4 shrink-0 ${
                 p.severity === "critical" ? "text-status-critical" : "text-status-warning"
               }`}
             />
             <div className="min-w-0">
-              <div className="text-sm text-text-primary">{p.title}</div>
-              <div className="text-xs text-text-muted">{p.target}</div>
+              <div className="text-sm text-text-primary">
+                {p.title} <span className="text-text-muted">· {p.target}</span>
+              </div>
+              <div className="mt-0.5 truncate text-xs text-text-muted" title={p.cause}>
+                {p.cause}
+              </div>
             </div>
           </Link>
         );
