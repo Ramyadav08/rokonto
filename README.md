@@ -1,36 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Observex
 
-## Getting Started
+Multi-tenant Kubernetes observability platform: metrics, logs, traces,
+dashboards, and alerts across many clients' clusters (dev/stg/prod), with
+per-user RBAC down to the cluster/namespace level.
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+/frontend   Next.js UI -- see frontend/README.md
+/backend    Go microservices + Mimir/Loki/Tempo/Postgres -- see backend/README.md
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The frontend never talks to a storage backend (Mimir/Loki/Tempo/Postgres)
+directly -- everything goes through the Go services in `/backend`, which are
+what actually enforce tenant isolation and RBAC on every read and write.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+See `/Users/ramrekhayadav/.claude/plans/abstract-tinkering-gizmo.md` for the
+full architecture writeup this was built from.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Status
 
-## Learn More
+Backend: all 5 services + shared packages code-complete, `go build`/`go
+vet`/`go test` passing. Frontend: auth, admin (clusters/users/RBAC), and the
+metrics/alerts data path wired to the backend; logs, traces, dashboard
+persistence, and some Overview widgets are still on the older mock-data path
+-- see recent commit history / conversation notes for the exact cut line.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Nothing has been run yet** -- no `docker compose up`, no live database.
+Everything so far is static verification only (compiles, type-checks, unit
+tests). See `backend/README.md` for how to bring the stack up when ready.

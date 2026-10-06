@@ -1,0 +1,13 @@
+# Applied to any tenant that has never uploaded its own Alertmanager config
+# (every tenant, so far -- nothing in this project has ever pushed one).
+# Without a fallback, Mimir's Alertmanager is never initialized for a tenant
+# at all and its API returns a bare 404, which is what made "Active Alerts"
+# permanently show "unavailable" rather than a real (even if empty) alert
+# list. This has no actual notification integration -- it exists so the API
+# responds with real data instead of 404, not to route notifications
+# anywhere; a tenant that wants real paging/notification integrations would
+# upload its own config via Mimir's per-tenant Alertmanager config API.
+route:
+  receiver: default
+receivers:
+  - name: default

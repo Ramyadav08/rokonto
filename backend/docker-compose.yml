@@ -1,0 +1,210 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: observex
+      POSTGRES_PASSWORD: observex
+      POSTGRES_DB: observex
+    ports: ["5432:5432"]
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U observex"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  # S3-compatible object storage for Mimir/Loki/Tempo. Garage, not MinIO --
+  # MinIO's official container images now require a Docker Hub login
+  # (post-relicensing), and its Bitnami mirror dropped free "latest" tags
+  # too. Garage is actually a better fit for a single small test node
+  # anyway: it's built for exactly that, where MinIO/SeaweedFS assume a
+  # multi-node deployment. Bucket/key creation isn't scriptable declaratively
+  # here (Garage's CLI needs a running instance to talk to) -- see
+  # README.md's "first boot" section for the one-time `garage` CLI commands
+  # that create the buckets and access key mimir/loki/tempo below expect via
+  # GARAGE_ACCESS_KEY/GARAGE_SECRET_KEY.
+  garage:
+    image: dxflrs/garage:v1.0.1
+    volumes:
+      - ./deploy/garage/garage.toml:/etc/garage.toml
+      - garage-meta:/data/meta
+      - garage-data:/data/data
+    ports: ["3900:3900", "3901:3901", "3903:3903"]
+
+  mimir:
+    image: grafana/mimir:latest
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true"]
+    environment:
+      GARAGE_ACCESS_KEY: ${GARAGE_ACCESS_KEY:?run the one-time garage bucket/key setup first, see README.md}
+      GARAGE_SECRET_KEY: ${GARAGE_SECRET_KEY:?run the one-time garage bucket/key setup first, see README.md}
+    volumes:
+      - ./deploy/mimir/mimir.yaml:/etc/mimir/mimir.yaml
+      - ./deploy/mimir/alertmanager-fallback.yaml:/etc/mimir/alertmanager-fallback.yaml
+      - mimir-data:/data/mimir
+    ports: ["9009:9009"]
+    depends_on: [garage]
+
+  # The official Loki image runs as uid 10001, but a freshly created named
+  # volume is owned by root -- Loki can't create its own working
+  # directories under it without this one-shot chown first.
+  loki-init:
+    image: busybox
+    command: ["chown", "-R", "10001:10001", "/data/loki"]
+    volumes: [loki-data:/data/loki]
+
+  loki:
+    image: grafana/loki:latest
+    command: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true"]
+    environment:
+      GARAGE_ACCESS_KEY: ${GARAGE_ACCESS_KEY:?run the one-time garage bucket/key setup first, see README.md}
+      GARAGE_SECRET_KEY: ${GARAGE_SECRET_KEY:?run the one-time garage bucket/key setup first, see README.md}
+    volumes:
+      - ./deploy/loki/loki.yaml:/etc/loki/loki.yaml
+      - loki-data:/data/loki
+    ports: ["3100:3100"]
+    depends_on:
+      garage: { condition: service_started }
+      loki-init: { condition: service_completed_successfully }
+
+  # Same uid-vs-fresh-volume-ownership issue as loki-init above -- the
+  # Tempo image also runs as uid 10001.
+  tempo-init:
+    image: busybox
+    command: ["chown", "-R", "10001:10001", "/data/tempo"]
+    volumes: [tempo-data:/data/tempo]
+
+  tempo:
+    # Pinned, not :latest -- Tempo v3 restructured compaction into a new
+    # backend-scheduler/backend-worker architecture that doesn't accept this
+    # config's ingester/compactor shape at all. 2.7.1 is the last 2.x release
+    # and matches the config below.
+    image: grafana/tempo:2.7.1
+    command: ["-config.file=/etc/tempo/tempo.yaml", "-config.expand-env=true"]
+    environment:
+      GARAGE_ACCESS_KEY: ${GARAGE_ACCESS_KEY:?run the one-time garage bucket/key setup first, see README.md}
+      GARAGE_SECRET_KEY: ${GARAGE_SECRET_KEY:?run the one-time garage bucket/key setup first, see README.md}
+    volumes:
+      - ./deploy/tempo/tempo.yaml:/etc/tempo/tempo.yaml
+      - tempo-data:/data/tempo
+    ports: ["3200:3200", "4317:4317", "4318:4318"]
+    depends_on:
+      garage: { condition: service_started }
+      tempo-init: { condition: service_completed_successfully }
+
+  # Runs migrations + creates the demo "alyssum" tenant/cluster/admin user,
+  # then exits. ADMIN_PASSWORD must be set in the environment before running
+  # `docker compose up` (no baked-in default password for an admin account).
+  seed:
+    build: { context: ., args: { SERVICE: seed } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+    entrypoint: ["/usr/local/bin/service", "--admin-password=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  auth-service:
+    build: { context: ., args: { SERVICE: auth-service } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      PORT: "8081"
+    ports: ["8081:8081"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+
+  tenant-service:
+    build: { context: ., args: { SERVICE: tenant-service } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set}
+      PORT: "8082"
+    ports: ["8082:8082"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+
+  rbac-service:
+    build: { context: ., args: { SERVICE: rbac-service } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      PORT: "8083"
+    ports: ["8083:8083"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+
+  ingest-gateway:
+    build: { context: ., args: { SERVICE: ingest-gateway } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      MIMIR_URL: http://mimir:9009
+      LOKI_URL: http://loki:3100
+      TEMPO_URL: http://tempo:3200
+      PORT: "8084"
+    ports: ["8084:8084"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+      mimir: { condition: service_started }
+      loki: { condition: service_started }
+      tempo: { condition: service_started }
+
+  query-gateway:
+    build: { context: ., args: { SERVICE: query-gateway } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      MIMIR_URL: http://mimir:9009
+      LOKI_URL: http://loki:3100
+      TEMPO_URL: http://tempo:3200
+      PORT: "8085"
+    ports: ["8085:8085"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+      mimir: { condition: service_started }
+      loki: { condition: service_started }
+      tempo: { condition: service_started }
+
+  platform-admin-service:
+    build: { context: ., args: { SERVICE: platform-admin-service } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      PLATFORM_JWT_SECRET: ${PLATFORM_JWT_SECRET:?PLATFORM_JWT_SECRET must be set}
+      PORT: "8086"
+    ports: ["8086:8086"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+
+  support-service:
+    build: { context: ., args: { SERVICE: support-service } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      PLATFORM_JWT_SECRET: ${PLATFORM_JWT_SECRET:?PLATFORM_JWT_SECRET must be set}
+      PORT: "8087"
+    ports: ["8087:8087"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+
+  blackbox-service:
+    build: { context: ., args: { SERVICE: blackbox-service } }
+    environment:
+      DATABASE_URL: postgres://observex:observex@postgres:5432/observex?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      MIMIR_URL: http://mimir:9009
+      PORT: "8088"
+    ports: ["8088:8088"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+      mimir: { condition: service_started }
+
+volumes:
+  pg-data:
+  garage-meta:
+  garage-data:
+  mimir-data:
+  loki-data:
+  tempo-data:

@@ -1,0 +1,38 @@
+# Single-process Tempo for local/docker-compose use. multitenancy_enabled:
+# true means every push/query must carry X-Scope-OrgID -- same contract as
+# Mimir and Loki.
+multitenancy_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 336h
+
+storage:
+  trace:
+    backend: s3
+    s3:
+      endpoint: garage:3900
+      region: garage
+      bucket: tempo
+      access_key: ${GARAGE_ACCESS_KEY}
+      secret_key: ${GARAGE_SECRET_KEY}
+      insecure: true
+      forcepathstyle: true
+    wal:
+      path: /data/tempo/wal

@@ -1,0 +1,29 @@
+// Lightweight stand-in for a real cluster's Alloy deployment -- same agent
+// software, same remote_write path to ingest-gateway, same per-cluster
+// token, just scraping this box's own running services' real Prometheus
+// self-metrics instead of real Kubernetes pods (no k8s cluster on this
+// host). Proves the full ingest -> tenant-scoped storage -> RBAC-scoped
+// query path end to end without installing a second Kubernetes cluster.
+prometheus.scrape "self_metrics" {
+  targets = [
+    {"__address__" = "mimir:9009", "job" = "mimir"},
+    {"__address__" = "loki:3100", "job" = "loki"},
+    {"__address__" = "tempo:3200", "job" = "tempo"},
+  ]
+  forward_to = [prometheus.remote_write.observex.receiver]
+}
+
+prometheus.remote_write "observex" {
+  endpoint {
+    url = sys.env("OBSERVEX_INGEST_URL") + "/metrics/write"
+    headers = {
+      Authorization = "Bearer " + sys.env("OBSERVEX_AGENT_TOKEN"),
+    }
+    write_relabel_config {
+      source_labels = ["__name__"]
+      regex         = "(.+)"
+      target_label  = "cluster"
+      replacement   = sys.env("OBSERVEX_CLUSTER_NAME")
+    }
+  }
+}

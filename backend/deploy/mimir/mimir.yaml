@@ -1,0 +1,65 @@
+# Single-process Mimir for local/docker-compose use. Multi-tenancy is ON by
+# default in Mimir (auth.multitenancy_enabled defaults true) -- every write
+# and query MUST carry X-Scope-OrgID, which is exactly the enforcement point
+# ingest-gateway and query-gateway rely on. Nothing here disables it.
+multitenancy_enabled: true
+
+# "all" deliberately does NOT include alertmanager (confirmed empirically --
+# it was completely absent from this Mimir's own /services debug page, not
+# failing or lazily-initializing per-tenant, just never started at all) --
+# it has to be requested explicitly.
+target: all,alertmanager
+
+server:
+  http_listen_port: 9009
+  log_level: warn
+
+common:
+  storage:
+    backend: s3
+    s3:
+      endpoint: garage:3900
+      region: garage
+      bucket_name: mimir
+      access_key_id: ${GARAGE_ACCESS_KEY}
+      secret_access_key: ${GARAGE_SECRET_KEY}
+      insecure: true
+
+blocks_storage:
+  storage_prefix: blocks
+  bucket_store:
+    sync_dir: /data/mimir/tsdb-sync
+  tsdb:
+    dir: /data/mimir/tsdb
+
+ruler_storage:
+  storage_prefix: ruler
+alertmanager_storage:
+  storage_prefix: alertmanager
+
+# Without a fallback config, Mimir never initializes a tenant's Alertmanager
+# at all until that tenant uploads its own config via the per-tenant
+# Alertmanager config API -- its API then 404s for every tenant, which is
+# exactly what was happening here (confirmed by querying Mimir directly).
+# This fallback is a minimal valid config (one receiver, no actual
+# notification integration) applied to any tenant with no config of its own,
+# so the real (if empty) alert list is reachable from day one.
+alertmanager:
+  enable_api: true
+  fallback_config_file: /etc/mimir/alertmanager-fallback.yaml
+
+compactor:
+  data_dir: /data/mimir/compactor
+
+# Local single-binary defaults -- fine for a docker-compose dev/test
+# deployment; a production install would run Mimir's microservices mode
+# instead of `target: all`.
+ingester:
+  ring:
+    replication_factor: 1
+
+limits:
+  # Small local dev/test volumes -- raise these before pointing a real prod
+  # cluster's full metrics volume at this.
+  ingestion_rate: 100000
+  ingestion_burst_size: 200000

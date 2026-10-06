@@ -1,0 +1,181 @@
+# Per-cluster values -- every field below is set once when this chart is
+# installed into a client's cluster (one Helm release per cluster, since
+# each cluster has its own agent token issued by tenant-service).
+observex:
+  # https://<tenant's ingest-gateway URL>, e.g. https://ingest.observex.example
+  ingestURL: ""
+  # The plaintext agent token shown once when the cluster was registered via
+  # `POST /clusters` on tenant-service. Put this in a real Secret in
+  # production (--set-file or a sealed-secret), not plain values.yaml.
+  agentToken: ""
+  # Must match the cluster's `name` in tenant-service exactly -- this is the
+  # label every metric/log/trace this agent ships gets tagged with, and it's
+  # what query-gateway's RBAC scoping filters on.
+  clusterName: ""
+
+# Bundled by default so a newly connected cluster has the metrics every
+# standard community Kubernetes dashboard expects from the moment the agent
+# is installed -- see the note in Chart.yaml. Set to false only if the
+# client's cluster already runs its own (duplicate scrape targets would
+# otherwise double-count node/pod-state metrics, harmless but wasteful).
+node-exporter:
+  enabled: true
+
+kube-state-metrics:
+  enabled: true
+
+alloy:
+  alloy:
+    configMap:
+      content: |
+        prometheus.remote_write "observex" {
+          endpoint {
+            url = sys.env("OBSERVEX_INGEST_URL") + "/metrics/write"
+            headers = {
+              Authorization = "Bearer " + sys.env("OBSERVEX_AGENT_TOKEN"),
+            }
+            write_relabel_config {
+              source_labels = ["__name__"]
+              regex         = "(.+)"
+              target_label  = "cluster"
+              replacement   = sys.env("OBSERVEX_CLUSTER_NAME")
+            }
+          }
+        }
+
+        // discovery.kubernetes's raw pod targets carry no __address__ at all
+        // (a pod has no single "the" port) -- without this relabel step,
+        // prometheus.scrape has nothing valid to scrape and silently
+        // scrapes zero targets, which is exactly what was happening before
+        // this was added: `up` came back completely empty, not just for
+        // kube-state-metrics but for every pod, every metric, since this
+        // agent was first deployed. One target already exists per declared
+        // container port (discovery.kubernetes's own behavior), so this
+        // just needs to turn that port into a real address and drop the
+        // (rare) targets with no declared port at all, rather than filter
+        // by a scrape-annotation convention real workloads may not set.
+        discovery.relabel "kubernetes_pods" {
+          targets = discovery.kubernetes.pods.targets
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_port_number"]
+            regex         = ""
+            action        = "drop"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_ip", "__meta_kubernetes_pod_container_port_number"]
+            separator     = ":"
+            target_label  = "__address__"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+        }
+
+        prometheus.scrape "kubernetes_pods" {
+          targets    = discovery.relabel.kubernetes_pods.output
+          forward_to = [prometheus.remote_write.observex.receiver]
+        }
+
+        discovery.kubernetes "pods" {
+          role = "pod"
+        }
+
+        loki.write "observex" {
+          endpoint {
+            url = sys.env("OBSERVEX_INGEST_URL") + "/logs/push"
+            headers = {
+              Authorization = "Bearer " + sys.env("OBSERVEX_AGENT_TOKEN"),
+            }
+          }
+        }
+
+        loki.source.kubernetes "pods" {
+          targets    = discovery.kubernetes.pods.targets
+          forward_to = [loki.process.add_cluster_label.receiver]
+        }
+
+        loki.process "add_cluster_label" {
+          forward_to = [loki.write.observex.receiver]
+          stage.static_labels {
+            values = {
+              cluster = sys.env("OBSERVEX_CLUSTER_NAME"),
+            }
+          }
+        }
+
+        otelcol.receiver.otlp "traces" {
+          grpc { endpoint = "0.0.0.0:4317" }
+          http { endpoint = "0.0.0.0:4318" }
+          output {
+            traces = [otelcol.processor.k8sattributes.add_k8s_metadata.input]
+          }
+        }
+
+        // Auto-detects the sending pod from the connection's source IP and
+        // attaches real k8s.namespace.name/k8s.pod.name resource attributes
+        // -- unlike logs/metrics (discovered via the Kubernetes API, so
+        // Alloy already knows every pod's namespace up front), an OTLP
+        // trace arrives as a push from the instrumented workload itself
+        // with no namespace context unless something enriches it this way.
+        otelcol.processor.k8sattributes "add_k8s_metadata" {
+          output {
+            traces = [otelcol.processor.transform.add_cluster_resource.input]
+          }
+        }
+
+        // Alloy has no otelcol.processor.resource component (that's an
+        // upstream OTel Collector processor Alloy doesn't wrap), but
+        // otelcol.processor.transform's OTTL statements can target the
+        // "resource" context directly -- this is what actually makes
+        // query-gateway's TraceQL scoping (`resource.cluster`/
+        // `resource.namespace`, the semantically correct place for
+        // deployment-environment facts to live, not per-span) match real
+        // data, rather than changing the scoping to match a span-level
+        // workaround. The namespace value comes from k8sattributes above;
+        // only "cluster" has to be supplied directly, since nothing upstream
+        // of this agent knows that name.
+        otelcol.processor.transform "add_cluster_resource" {
+          error_mode = "ignore"
+          trace_statements {
+            context = "resource"
+            statements = [
+              "set(attributes[\"cluster\"], \"" + sys.env("OBSERVEX_CLUSTER_NAME") + "\")",
+              "set(attributes[\"namespace\"], attributes[\"k8s.namespace.name\"])",
+            ]
+          }
+          output {
+            traces = [otelcol.exporter.otlphttp.observex.input]
+          }
+        }
+
+        otelcol.exporter.otlphttp "observex" {
+          client {
+            endpoint = sys.env("OBSERVEX_INGEST_URL") + "/traces"
+            headers = {
+              Authorization = "Bearer " + sys.env("OBSERVEX_AGENT_TOKEN"),
+            }
+          }
+        }
+
+    # Sibling of configMap above, not of the outer alloy: key -- this chart
+    # is a dependency, so its values live one level deeper than they would
+    # in the alloy chart's own standalone values.yaml (where this same key
+    # is just `alloy.extraEnv`). Confirmed by reading the subchart's own
+    # template, which resolves extraEnv from its own `.Values.alloy`.
+    extraEnv:
+      - name: OBSERVEX_INGEST_URL
+        valueFrom: { secretKeyRef: { name: observex-agent-credentials, key: ingestURL } }
+      - name: OBSERVEX_AGENT_TOKEN
+        valueFrom: { secretKeyRef: { name: observex-agent-credentials, key: agentToken } }
+      - name: OBSERVEX_CLUSTER_NAME
+        valueFrom: { secretKeyRef: { name: observex-agent-credentials, key: clusterName } }

@@ -1,0 +1,30 @@
+apiVersion: v2
+name: observex-cluster-agent
+description: >
+  Deployed into a client's Kubernetes cluster to ship its metrics, logs, and
+  traces to Observex's ingest-gateway. Wraps Grafana Alloy (metrics + logs)
+  rather than reimplementing collection -- Alloy already speaks Prometheus
+  remote_write, Loki push, and OTLP natively. Also bundles node-exporter and
+  kube-state-metrics by default: most real/community Kubernetes dashboards
+  (node CPU/memory/disk panels, pod/namespace/deployment state panels)
+  assume both exist, and Alloy's own pod-scrape config (see values.yaml's
+  discovery.relabel step) picks up any pod on its declared port with no
+  further config -- so bundling them here is what makes importing a standard
+  dashboard work immediately on any newly connected cluster, rather than
+  requiring someone to notice what's missing and install it by hand per
+  cluster, per dashboard.
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: alloy
+    version: "0.12.x"
+    repository: "https://grafana.github.io/helm-charts"
+  - name: prometheus-node-exporter
+    alias: node-exporter
+    version: "4.x"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: node-exporter.enabled
+  - name: kube-state-metrics
+    version: "8.x"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: kube-state-metrics.enabled

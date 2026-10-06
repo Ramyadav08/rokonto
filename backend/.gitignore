@@ -1,0 +1,18 @@
+# Go build cache/output, if anything ever gets built with -o at repo root
+# instead of via the Dockerfile. The real builds happen via Dockerfile, so a
+# loose binary at this level is always a local `go build ./cmd/<name>` test
+# artifact -- one per service, matching every cmd/ directory name.
+/bin/
+*.exe
+/auth-service
+/tenant-service
+/rbac-service
+/ingest-gateway
+/query-gateway
+/platform-admin-service
+/support-service
+/blackbox-service
+/seed
+
+# Per-developer local overrides.
+.env

@@ -1,0 +1,26 @@
+# Single-node Garage (https://garagehq.deuxfleurs.fr) standing in for MinIO
+# as the S3-compatible object storage behind Mimir/Loki/Tempo. Switched to
+# this after MinIO locked its official container images behind a login wall
+# -- Garage is purpose-built for exactly this "one small self-hosted node"
+# case, unlike MinIO/SeaweedFS which assume a multi-node deployment.
+metadata_dir = "/data/meta"
+data_dir = "/data/data"
+db_engine = "sqlite"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+# Test/dev-only fixed secrets, same convention as this compose file's other
+# local-only credentials (Postgres, the old MinIO setup) -- not meant to
+# survive past a light local/test deployment.
+rpc_secret = "6148a26c177acc3ff31092f5a5e8a94dbf0f22d56ecf6e5b5680d57c09edd276"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.garage.localhost"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token = "observex-garage-admin-token"
